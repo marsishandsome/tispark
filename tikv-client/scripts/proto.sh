@@ -14,20 +14,23 @@
 #   limitations under the License.
 #
 
+kvproto_commit=ab7debc182d9c536775b3adde7e35716f10bc0b6
+
 if [ -d "kvproto" ]; then
-    cd kvproto; git pull origin master; cd ..
+    # cd kvproto; git pull origin master; cd ..
+    cd kvproto; git fetch -p; git checkout $kvproto_commit; cd ..
 else
-    git clone https://github.com/pingcap/kvproto
+    git clone https://github.com/pingcap/kvproto; cd kvproto; git checkout $kvproto_commit; cd ..
 fi
 
 if [ -d "raft-rs" ]; then
-    cd raft-rs; git pull origin master; cd ..
+    cd raft-rs; git fetch -p; git pull origin master; cd ..
 else
     git clone https://github.com/pingcap/raft-rs
 fi
 
 if [ -d "tipb" ]; then
-    cd tipb; git pull origin master; cd ..
+    cd tipb; git fetch -p; git pull origin master; cd ..
 else
     git clone https://github.com/pingcap/tipb
 fi
