@@ -115,6 +115,8 @@ class TiBatchWrite(@transient val df: DataFrame,
   @throws(classOf[NoSuchTableException])
   @throws(classOf[TiBatchWriteException])
   private def doWrite(): Unit = {
+    val startSecond = System.currentTimeMillis() / 1000
+
     // check if write enable
     if (!tiContext.tiConf.isWriteEnable) {
       throw new TiBatchWriteException(
@@ -135,7 +137,7 @@ class TiBatchWrite(@transient val df: DataFrame,
     }
 
     colsMapInTiDB = tiTableInfo.getColumns.asScala.map(col => col.getName -> col).toMap
-    colsInDf = df.columns.toList
+    colsInDf = df.columns.toList.map(_.toLowerCase())
     uniqueIndices = tiTableInfo.getIndices.asScala.filter(index => index.isUnique).toList
     handleCol = tiTableInfo.getPKIsHandleColumn
     tableColSize = tiTableInfo.getColumns.size()
@@ -317,12 +319,24 @@ class TiBatchWrite(@transient val df: DataFrame,
     logger.info(s"startTS: $startTs")
 
     // driver primary pre-write
-    val ti2PCClient = new TwoPhaseCommitter(tiConf, startTs)
+    val ti2PCClient = new TwoPhaseCommitter(tiConf, startTs, options.lockTTLSeconds)
     val prewritePrimaryBackoff =
       ConcreteBackOffer.newCustomBackOff(BackOffer.BATCH_PREWRITE_BACKOFF)
+
+    val beforePrewritePrimarySecond = System.currentTimeMillis() / 1000
+    logger.info(
+      s"==== from start to before prewrite primary key used: ${beforePrewritePrimarySecond - startSecond} seconds"
+    )
+
+    logger.info(s"start prewrite primary key")
     ti2PCClient.prewritePrimaryKey(prewritePrimaryBackoff, primaryKey.bytes, primaryRow)
+    val prewritePrimarySecond = System.currentTimeMillis() / 1000
+    logger.info(
+      s"==== prewrite primary key used: ${prewritePrimarySecond - beforePrewritePrimarySecond} seconds"
+    )
 
     // executors secondary pre-write
+    logger.info(s"start prewrite secondary keys")
     finalWriteRDD.foreachPartition { iterator =>
       val ti2PCClientOnExecutor = new TwoPhaseCommitter(tiConf, startTs)
 
@@ -339,6 +353,10 @@ class TiBatchWrite(@transient val df: DataFrame,
         case _: Throwable =>
       }
     }
+    val prewriteSecondSecond = System.currentTimeMillis() / 1000
+    logger.info(
+      s"==== prewrite second key used: ${prewriteSecondSecond - prewritePrimarySecond} seconds"
+    )
 
     // driver primary commit
     val commitTs = tiSession.getTimestamp.getVersion
@@ -348,18 +366,25 @@ class TiBatchWrite(@transient val df: DataFrame,
         s"invalid transaction tso with startTs=$startTs, commitTs=$commitTs"
       )
     }
+    logger.info(s"commitTS: $commitTs")
     val commitPrimaryBackoff = ConcreteBackOffer.newCustomBackOff(PRIMARY_KEY_COMMIT_BACKOFF)
 
     if (connectionLost()) {
       throw new TiBatchWriteException("tidb's jdbc connection is lost!")
     }
+    logger.info(s"start commit primary key")
     ti2PCClient.commitPrimaryKey(commitPrimaryBackoff, primaryKey.bytes, commitTs)
+    val commitPrimarySecond = System.currentTimeMillis() / 1000
+    logger.info(
+      s"==== commit primary key used: ${commitPrimarySecond - prewriteSecondSecond} seconds"
+    )
 
     // unlock table
     unlockTable()
 
     // executors secondary commit
     if (!options.skipCommitSecondaryKey) {
+      logger.info(s"start commit secondary keys")
       finalWriteRDD.foreachPartition { iterator =>
         val ti2PCClientOnExecutor = new TwoPhaseCommitter(tiConf, startTs)
 
@@ -375,9 +400,19 @@ class TiBatchWrite(@transient val df: DataFrame,
             logger.warn(s"commit secondary key error", e)
         }
       }
+
+      val commitSecondSecond = System.currentTimeMillis() / 1000
+      logger.info(
+        s"==== commit second key used: ${commitSecondSecond - commitPrimarySecond} seconds"
+      )
     } else {
       logger.info("skipping commit secondary key")
     }
+
+    val regions = getRegions
+    logger.info(
+      s"find ${regions.size} regions in $tiTableRef"
+    )
   }
 
   private def getAutoTableIdStart(step: Long): Long = {
@@ -546,7 +581,7 @@ class TiBatchWrite(@transient val df: DataFrame,
     val tableId = tiTableInfo.getId
 
     val regions = getRegions
-    val tiRegionPartitioner = new TiRegionPartitioner(regions)
+    val tiRegionPartitioner = new TiRegionPartitioner(regions, options.writeConcurrency)
 
     logger.info(
       s"find ${regions.size} regions in $tiTableRef tableId: $tableId"
@@ -754,8 +789,8 @@ class TiBatchWrite(@transient val df: DataFrame,
   }
 }
 
-class TiRegionPartitioner(regions: List[TiRegion]) extends Partitioner {
-  override def numPartitions: Int = regions.length
+class TiRegionPartitioner(regions: List[TiRegion], writeConcurrency: Int) extends Partitioner {
+  override def numPartitions: Int = if (writeConcurrency <= 0) regions.length else writeConcurrency
 
   override def getPartition(key: Any): Int = {
     val serializableKey = key.asInstanceOf[SerializableKey]
@@ -765,7 +800,7 @@ class TiRegionPartitioner(regions: List[TiRegion]) extends Partitioner {
       val region = regions(i)
       val range = KeyRangeUtils.makeRange(region.getStartKey, region.getEndKey)
       if (range.contains(rawKey)) {
-        return i
+        return if (writeConcurrency <= 0) i else i % writeConcurrency
       }
     }
     0
