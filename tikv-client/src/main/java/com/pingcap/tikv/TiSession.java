@@ -79,6 +79,10 @@ public class TiSession implements AutoCloseable {
     }
   }
 
+  public ImportSSTClient getImportSSTClient() {
+    return ImportSSTClient.createImportSSTClient(this.getConf(), channelFactory);
+  }
+
   public TxnKVClient createTxnClient() {
     return new TxnKVClient(conf, this.getRegionStoreClientBuilder(), this.getPDClient());
   }
@@ -215,9 +219,10 @@ public class TiSession implements AutoCloseable {
         splitRegion(
             splitKeys
                 .stream()
-                .map(k -> Key.toRawKey(k).next().toByteString())
+                .map(k -> Key.toRawKey(k).toByteString())
                 .collect(Collectors.toList()),
-            ConcreteBackOffer.newCustomBackOff(splitRegionBackoffMS));
+            ConcreteBackOffer.newCustomBackOff(splitRegionBackoffMS),
+            1);
 
     // scatter region
     for (TiRegion newRegion : newRegions) {
@@ -250,7 +255,7 @@ public class TiSession implements AutoCloseable {
     logger.info("splitRegionAndScatter cost {} seconds", (endMS - startMS) / 1000);
   }
 
-  private List<TiRegion> splitRegion(List<ByteString> splitKeys, BackOffer backOffer) {
+  private List<TiRegion> splitRegion(List<ByteString> splitKeys, BackOffer backOffer, int depth) {
     List<TiRegion> regions = new ArrayList<>();
 
     Map<TiRegion, List<ByteString>> groupKeys = groupKeysByRegion(splitKeys);
@@ -280,7 +285,12 @@ public class TiSession implements AutoCloseable {
           logger.warn("ReSplitting ranges for splitRegion", e);
           clientBuilder.getRegionManager().invalidateRegion(region.getId());
           backOffer.doBackOff(BackOffFunction.BackOffFuncType.BoRegionMiss, e);
-          newRegions = splitRegion(splits, backOffer);
+          if (depth >= 5) {
+            logger.warn("Skip split region");
+            newRegions = new ArrayList<>();
+          } else {
+            newRegions = splitRegion(splits, backOffer, depth + 1);
+          }
         }
         logger.info("region id={}, new region size={}", region.getId(), newRegions.size());
         regions.addAll(newRegions);
@@ -293,7 +303,9 @@ public class TiSession implements AutoCloseable {
 
   private Map<TiRegion, List<ByteString>> groupKeysByRegion(List<ByteString> keys) {
     return keys.stream()
-        .collect(Collectors.groupingBy(clientBuilder.getRegionManager()::getRegionByKey));
+        .collect(
+            Collectors.groupingBy(
+                getRegionStoreClientBuilder().getRegionManager()::getRegionByKey));
   }
 
   @Override

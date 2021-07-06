@@ -50,6 +50,7 @@ import com.pingcap.tikv.util.ConcreteBackOffer;
 import com.pingcap.tikv.util.Pair;
 import com.pingcap.tikv.util.RangeSplitter;
 import io.grpc.ManagedChannel;
+import io.grpc.stub.StreamObserver;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashMap;
@@ -69,6 +70,9 @@ import org.tikv.kvproto.Coprocessor.KeyRange;
 import org.tikv.kvproto.Coprocessor.Request;
 import org.tikv.kvproto.Coprocessor.Response;
 import org.tikv.kvproto.Errorpb;
+import org.tikv.kvproto.ImportSSTGrpc;
+import org.tikv.kvproto.ImportSstpb;
+import org.tikv.kvproto.Kvrpcpb;
 import org.tikv.kvproto.Kvrpcpb.BatchGetRequest;
 import org.tikv.kvproto.Kvrpcpb.BatchGetResponse;
 import org.tikv.kvproto.Kvrpcpb.CommitRequest;
@@ -124,10 +128,20 @@ public class RegionStoreClient extends AbstractRegionStoreClient {
       ChannelFactory channelFactory,
       TikvBlockingStub blockingStub,
       TikvStub asyncStub,
+      ImportSSTGrpc.ImportSSTStub importSSTStub,
+      ImportSSTGrpc.ImportSSTBlockingStub importSSTBlockingStub,
       RegionManager regionManager,
       PDClient pdClient,
       RegionStoreClient.RegionStoreClientBuilder clientBuilder) {
-    super(conf, region, channelFactory, blockingStub, asyncStub, regionManager);
+    super(
+        conf,
+        region,
+        channelFactory,
+        blockingStub,
+        asyncStub,
+        importSSTStub,
+        importSSTBlockingStub,
+        regionManager);
     this.storeType = storeType;
 
     if (this.storeType == TiStoreType.TiKV) {
@@ -183,6 +197,35 @@ public class RegionStoreClient extends AbstractRegionStoreClient {
 
   public synchronized Set<Long> getResolvedLocks(Long version) {
     return resolvedLocks.getOrDefault(version, java.util.Collections.emptySet());
+  }
+
+  public RawWriteOutputStreamObserver streamObserverResponse;
+  public StreamObserver<ImportSstpb.RawWriteRequest> streamObserverRequest;
+  private ImportSstpb.RawWriteResponse rawWriteResponse;
+
+  public synchronized ImportSstpb.RawWriteResponse getRawWriteResponse() {
+    return rawWriteResponse;
+  }
+
+  public synchronized void setRawWriteResponse(ImportSstpb.RawWriteResponse rawWriteResponse) {
+    this.rawWriteResponse = rawWriteResponse;
+  }
+
+  /** open streaming, send to leader followers and learners */
+  public StreamObserver<ImportSstpb.RawWriteRequest> rawWrite(
+      RawWriteOutputStreamObserver streamObserver) {
+    return getImportSSTStub().rawWrite(streamObserver);
+  }
+
+  /** send to leader */
+  public void multiIngest(Kvrpcpb.Context ctx, List<ImportSstpb.SSTMeta> value) {
+    ImportSstpb.MultiIngestRequest request =
+        ImportSstpb.MultiIngestRequest.newBuilder().setContext(ctx).addAllSsts(value).build();
+
+    ImportSstpb.IngestResponse response = getImportSSTBlockingStub().multiIngest(request);
+    if (response.hasError()) {
+      throw new GrpcException("" + response.getError());
+    }
   }
 
   /**
@@ -801,6 +844,7 @@ public class RegionStoreClient extends AbstractRegionStoreClient {
             SplitRegionRequest.newBuilder()
                 .setContext(region.getContext())
                 .addAllSplitKeys(splitKeys)
+                .setIsRawKv(true)
                 .build();
 
     KVErrorHandler<SplitRegionResponse> handler =
@@ -892,6 +936,10 @@ public class RegionStoreClient extends AbstractRegionStoreClient {
       TikvBlockingStub blockingStub = TikvGrpc.newBlockingStub(channel);
       TikvStub asyncStub = TikvGrpc.newStub(channel);
 
+      ImportSSTGrpc.ImportSSTStub importSSTStub = ImportSSTGrpc.newStub(channel);
+      ImportSSTGrpc.ImportSSTBlockingStub importSSTBlockStub =
+          ImportSSTGrpc.newBlockingStub(channel);
+
       return new RegionStoreClient(
           conf,
           region,
@@ -900,6 +948,8 @@ public class RegionStoreClient extends AbstractRegionStoreClient {
           channelFactory,
           blockingStub,
           asyncStub,
+          importSSTStub,
+          importSSTBlockStub,
           regionManager,
           pdClient,
           this);

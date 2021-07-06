@@ -65,6 +65,10 @@ public class RegionManager {
     return cacheInvalidateCallback;
   }
 
+  public void invalidateAll() {
+    cache.invalidateAll();
+  }
+
   public TiRegion getRegionByKey(ByteString key) {
     return getRegionByKey(key, ConcreteBackOffer.newGetBackOff());
   }
@@ -198,6 +202,12 @@ public class RegionManager {
 
       keyToRegionIdCache = TreeRangeMap.create();
       this.pdClient = pdClient;
+    }
+
+    public synchronized void invalidateAll() {
+      regionCache.clear();
+      storeCache.clear();
+      keyToRegionIdCache.clear();
     }
 
     public synchronized TiRegion getRegionByKey(ByteString key, BackOffer backOffer) {

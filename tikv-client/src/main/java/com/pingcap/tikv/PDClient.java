@@ -22,8 +22,6 @@ import static com.pingcap.tikv.pd.PDError.buildFromPdpbError;
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.util.concurrent.ThreadFactoryBuilder;
 import com.google.protobuf.ByteString;
-import com.pingcap.tikv.codec.Codec.BytesCodec;
-import com.pingcap.tikv.codec.CodecDataOutput;
 import com.pingcap.tikv.codec.KeyUtils;
 import com.pingcap.tikv.exception.GrpcException;
 import com.pingcap.tikv.exception.TiClientInternalException;
@@ -208,12 +206,12 @@ public class PDClient extends AbstractGRPCClient<PDBlockingStub, PDStub>
 
   @Override
   public TiRegion getRegionByKey(BackOffer backOffer, ByteString key) {
-    CodecDataOutput cdo = new CodecDataOutput();
+    /*CodecDataOutput cdo = new CodecDataOutput();
     BytesCodec.writeBytes(cdo, key.toByteArray());
-    ByteString encodedKey = cdo.toByteString();
+    ByteString encodedKey = cdo.toByteString();*/
 
     Supplier<GetRegionRequest> request =
-        () -> GetRegionRequest.newBuilder().setHeader(header).setRegionKey(encodedKey).build();
+        () -> GetRegionRequest.newBuilder().setHeader(header).setRegionKey(key).build();
 
     PDErrorHandler<GetRegionResponse> handler =
         new PDErrorHandler<>(getRegionResponseErrorExtractor, this);

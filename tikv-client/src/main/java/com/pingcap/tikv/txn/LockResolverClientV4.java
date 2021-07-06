@@ -85,7 +85,7 @@ public class LockResolverClientV4 extends AbstractRegionStoreClient
       RegionManager regionManager,
       PDClient pdClient,
       RegionStoreClient.RegionStoreClientBuilder clientBuilder) {
-    super(conf, region, channelFactory, blockingStub, asyncStub, regionManager);
+    super(conf, region, channelFactory, blockingStub, asyncStub, null, null, regionManager);
     resolved = new HashMap<>();
     recentResolved = new LinkedList<>();
     readWriteLock = new ReentrantReadWriteLock();

@@ -18,7 +18,7 @@ CURRENT_DIR=`pwd`
 TISPARK_HOME="$(cd "`dirname "$0"`"/../..; pwd)"
 cd $TISPARK_HOME/tikv-client
 
-kvproto_hash=2cf9a243b8d589f345de1dbaa9eeffec6afbdc06
+kvproto_hash=d4c03f6956e1e3f3043d61df1f3c8d30a425b9d4
 
 raft_rs_hash=b9891b673573fad77ebcf9bbe0969cf945841926
 
@@ -27,7 +27,7 @@ tipb_hash=c4d518eb1d60c21f05b028b36729e64610346dac
 if [ -d "kvproto" ]; then
 	cd kvproto; git fetch -p; git checkout ${kvproto_hash}; cd ..
 else
-	git clone https://github.com/pingcap/kvproto; cd kvproto; git checkout ${kvproto_hash}; cd ..
+	git clone https://github.com/andylokandy/kvproto; cd kvproto; git checkout ${kvproto_hash}; cd ..
 fi
 
 if [ -d "raft-rs" ]; then

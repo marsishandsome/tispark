@@ -18,8 +18,6 @@
 package com.pingcap.tikv.region;
 
 import com.google.protobuf.ByteString;
-import com.pingcap.tikv.codec.Codec.BytesCodec;
-import com.pingcap.tikv.codec.CodecDataInput;
 import com.pingcap.tikv.codec.KeyUtils;
 import com.pingcap.tikv.exception.TiClientInternalException;
 import com.pingcap.tikv.key.Key;
@@ -45,7 +43,8 @@ public class TiRegion implements Serializable {
   public TiRegion(
       Region meta, Peer peer, IsolationLevel isolationLevel, Kvrpcpb.CommandPri commandPri) {
     Objects.requireNonNull(meta, "meta is null");
-    this.meta = decodeRegion(meta);
+    this.meta = meta;
+    // this.meta = decodeRegion(meta);
     if (peer == null || peer.getId() == 0) {
       if (meta.getPeersCount() == 0) {
         throw new TiClientInternalException("Empty peer list for region " + meta.getId());
@@ -59,6 +58,10 @@ public class TiRegion implements Serializable {
     this.commandPri = commandPri;
   }
 
+  public List<Peer> getPeersList() {
+    return meta.getPeersList();
+  }
+
   private Region decodeRegion(Region region) {
     Region.Builder builder =
         Region.newBuilder()
@@ -69,15 +72,23 @@ public class TiRegion implements Serializable {
     if (region.getStartKey().isEmpty()) {
       builder.setStartKey(region.getStartKey());
     } else {
-      byte[] decodedStartKey = BytesCodec.readBytes(new CodecDataInput(region.getStartKey()));
-      builder.setStartKey(ByteString.copyFrom(decodedStartKey));
+      // byte[] decodedStartKey = BytesCodec.readBytes(new CodecDataInput(region.getStartKey()));
+      // builder.setStartKey(ByteString.copyFrom(decodedStartKey));
+
+      int length = region.getStartKey().size();
+      ByteString bs = region.getStartKey().substring(0, length - 1);
+      builder.setStartKey(bs);
     }
 
     if (region.getEndKey().isEmpty()) {
       builder.setEndKey(region.getEndKey());
     } else {
-      byte[] decodedEndKey = BytesCodec.readBytes(new CodecDataInput(region.getEndKey()));
-      builder.setEndKey(ByteString.copyFrom(decodedEndKey));
+      // byte[] decodedEndKey = BytesCodec.readBytes(new CodecDataInput(region.getEndKey()));
+      // builder.setEndKey(ByteString.copyFrom(decodedEndKey));
+
+      int length = region.getEndKey().size();
+      ByteString bs = region.getEndKey().substring(0, length - 1);
+      builder.setEndKey(bs);
     }
 
     return builder.build();
@@ -89,11 +100,11 @@ public class TiRegion implements Serializable {
 
   public List<Peer> getLearnerList() {
     List<Peer> peers = new ArrayList<>();
-    for (Peer peer : getMeta().getPeersList()) {
+    /*for (Peer peer : getMeta().getPeersList()) {
       if (peer.getIsLearner()) {
         peers.add(peer);
       }
-    }
+    }*/
     return peers;
   }
 
@@ -115,6 +126,13 @@ public class TiRegion implements Serializable {
 
   public Key getRowEndKey() {
     return Key.toRawKey(getEndKey());
+  }
+
+  public Key getRowStartKey() {
+    if (getStartKey().isEmpty()) {
+      return Key.MIN;
+    }
+    return Key.toRawKey(getStartKey());
   }
 
   public Kvrpcpb.Context getContext() {

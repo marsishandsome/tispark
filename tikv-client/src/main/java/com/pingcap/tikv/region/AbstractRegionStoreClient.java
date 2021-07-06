@@ -25,6 +25,7 @@ import com.pingcap.tikv.TiConfiguration;
 import com.pingcap.tikv.exception.GrpcException;
 import com.pingcap.tikv.util.ChannelFactory;
 import io.grpc.ManagedChannel;
+import org.tikv.kvproto.ImportSSTGrpc;
 import org.tikv.kvproto.Metapb;
 import org.tikv.kvproto.TikvGrpc;
 
@@ -35,12 +36,17 @@ public abstract class AbstractRegionStoreClient
   protected final RegionManager regionManager;
   protected TiRegion region;
 
+  protected ImportSSTGrpc.ImportSSTStub importSSTStub;
+  protected ImportSSTGrpc.ImportSSTBlockingStub importSSTBlockingStub;
+
   protected AbstractRegionStoreClient(
       TiConfiguration conf,
       TiRegion region,
       ChannelFactory channelFactory,
       TikvGrpc.TikvBlockingStub blockingStub,
       TikvGrpc.TikvStub asyncStub,
+      ImportSSTGrpc.ImportSSTStub importSSTStub,
+      ImportSSTGrpc.ImportSSTBlockingStub importSSTBlockingStub,
       RegionManager regionManager) {
     super(conf, channelFactory, blockingStub, asyncStub);
     checkNotNull(region, "Region is empty");
@@ -48,10 +54,21 @@ public abstract class AbstractRegionStoreClient
     checkArgument(region.getLeader() != null, "Leader Peer is null");
     this.region = region;
     this.regionManager = regionManager;
+    this.importSSTStub = importSSTStub;
+    this.importSSTBlockingStub = importSSTBlockingStub;
   }
 
   public TiRegion getRegion() {
     return region;
+  }
+
+  public ImportSSTGrpc.ImportSSTStub getImportSSTStub() {
+    return importSSTStub.withDeadlineAfter(getConf().getTimeout(), getConf().getTimeoutUnit());
+  }
+
+  public ImportSSTGrpc.ImportSSTBlockingStub getImportSSTBlockingStub() {
+    return importSSTBlockingStub.withDeadlineAfter(
+        getConf().getTimeout(), getConf().getTimeoutUnit());
   }
 
   @Override

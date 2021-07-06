@@ -78,7 +78,7 @@ public class LockResolverClientV2 extends AbstractRegionStoreClient
       TikvStub asyncStub,
       ChannelFactory channelFactory,
       RegionManager regionManager) {
-    super(conf, region, channelFactory, blockingStub, asyncStub, regionManager);
+    super(conf, region, channelFactory, blockingStub, asyncStub, null, null, regionManager);
     resolved = new HashMap<>();
     recentResolved = new LinkedList<>();
     readWriteLock = new ReentrantReadWriteLock();
